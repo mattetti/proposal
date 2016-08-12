@@ -1,19 +1,212 @@
-# Proposal: Audio for Mobile
+# Proposal: Common consumption audio interface
 
-Author: Jaana Burcu Dogan
+Authors: Jaana Burcu Dogan, Matt Aimonetti
 
 With input from David Crawshaw, Hyang-Ah Kim and Andrew Gerrand.
 
-Last updated: November 30, 2015
+Last updated: August 12, 2016
 
 Discussion at https://golang.org/issue/13432.
 
 ## Abstract
 
-This proposal suggests core abstractions to support audio decoding
-and playback on mobile devices.
+This proposal suggests core abstractions to support consumption of audio
+data in various contexts: from analysis, processing to playback.
 
 ## Background
+
+Audio is a key element of the modern multimedia experience but the Go
+standard library doesn't current provide high level abstractions to
+decode such data.
+
+One of the reasons might be that there is a large number of audio formats
+and ways to use audio data. The source data is encoded and stored in a
+container format. The output can be streamed or stored to disk.
+The different types of encoding can be separated in two big families:
+
+* uncompressed audio data - raw serialized data.
+* compressed audio data - the source is analyzed, processed and the results is serialized.
+
+Formats vary a lot and offer different features often supporting different kind of
+encodings. These containers are what users interact with: mp3, mp4, mkv, aac, caf,
+flac, wav, aiff etc...
+
+But whatever the container/encoding format, to process, analyse or playback audio content,
+you need to access the uncompressed audio data. Uncompressed audio data is the digital
+representation of a sampled analog signal. This data is called PCM, Pulse-Code Modulation.
+PCM data has two basic properties: its sample rate and bit depth (range used to represent the
+precision of the sample). Dependending on the source or usage, PCM data is usually
+sampled at a sample rate going from 22.5kHz to 192Khz and a bit depth from 8 to 32bit.
+Futhermore the PCM data can be signed, unsigned, using integers or floats.
+
+## Proposal
+
+Instead of trying to define a generic interface for encoders/decoders (codecs),
+we are proposing the introduction of a concrete type called `PCMBuffer`.
+
+The `PCMBuffer` type would encapsulate uncompressed audio data.
+It would also expose its format as well as offer access to the data
+in various types (integer, floats, bytes).
+Audio decoders would be returning or populating `PCMBuffer`s, encoders would
+take `PCMBuffer`s and analyzer/processing tools could operate on those buffers.
+
+The big advantages of such a solution are flexibility and standardization.
+Each codec and playback solution is slightly different and while we tried to
+come up with a generic interface for thoses, we quickly realized that
+the API surface is way to large. Some of these interfaces might come later
+but we know that virtually every single audio software needs to process PCM data.
+By having a standard way to share and consume PCM data, we can start building
+a collection of codecs and hardware interfaces that will be compatible with each other.
+
+Here is the heart of the proposal, the `PCMBuffer`:
+
+```go
+// PCMBuffer encapsulates uncompressed audio data
+// and provides useful methods to read/manipulate this PCM data.
+type PCMBuffer struct {
+	// Format describes the format of the buffer data.
+	Format *Format
+	// Ints is a store for audio sample data as integers.
+	Ints []int
+	// Floats is a store for audio samples data as float64.
+	Floats []float64
+	// Bytes is a store for audio samples data as raw bytes.
+	Bytes []byte
+	// DataType indicates the primary format used for the underlying data.
+	// The consumer of the buffer might want to look at this value to know what store
+	// to use to optimaly retrieve data.
+	DataType DataFormat
+}
+```
+
+Part of the challenge if finding a common ground is that the PCM data can be provided
+in various formats and can be consumed in other formats. A buffer might be filled with
+`float64` samples but then consumed as `int16`. That's why the struct offers different stores
+as slices of different types. The slice type used is indicated by `DataType` fields.
+`DataType` is a of type `DataFormat`:
+
+```go
+// DataFormat is an enum type to indicate the underlying data format used.
+type DataFormat int
+
+const (
+	// Unknown refers to an unknown format
+	Unknown DataFormat = iota
+	// Integer represents the int type.
+	// it represents the native int format used in audio buffers.
+	Integer
+	// Float represents the float64 type.
+	// It represents the native float format used in audio buffers.
+	Float
+	// Byte represents the byte type.
+	Byte
+)
+```
+
+The format of samples contained in the buffer is defined by the `Format` type:
+
+```go
+// Format is a high level representation of the underlying data.
+type Format struct {
+	// Channels is the number of channels contained in the data
+	Channels int
+	// SampleRate is the sampling rate in Hz
+	SampleRate int
+	// BitDepth is the number of bits of data for each sample
+	BitDepth int
+	// Endianess indicate how the byte order of underlying bytes
+	Endianness binary.ByteOrder
+}
+```
+
+Constructors can be offered to make the creation of buffers easier, for instance:
+
+```go
+// NewPCMIntBuffer returns a new PCM buffer backed by the passed integer samples
+func NewPCMIntBuffer(data []int, format *Format) *PCMBuffer {
+	return &PCMBuffer{
+		Format:   format,
+		DataType: Integer,
+		Ints:     data,
+	}
+}
+```
+
+The `PCMBuffer` would need to provide a series of methods, starting by two providing
+its size and length. While this might sound a bit odd, there is a difference between
+the length and the size of a PCM buffer. The length reports the number of items
+in the data store (for instance the number of samples), while the size reports
+the number of frames. A frame represents a sample across one or more channels.
+
+```go
+// Len returns the length of the underlying data.
+func (b *PCMBuffer) Len() int {
+	if b == nil {
+		return 0
+	}
+
+	switch b.DataType {
+	case Integer:
+		return len(b.Ints)
+	case Float:
+		return len(b.Floats)
+	case Byte:
+		return len(b.Bytes)
+	default:
+		return 0
+	}
+}
+
+// Size returns the number of frames contained in the buffer.
+func (b *PCMBuffer) Size() (numFrames int) {
+	if b == nil || b.Format == nil {
+		return 0
+	}
+	numChannels := b.Format.Channels
+	if numChannels == 0 {
+		numChannels = 1
+	}
+	switch b.DataType {
+	case Integer:
+		numFrames = len(b.Ints) / numChannels
+	case Float:
+		numFrames = len(b.Floats) / numChannels
+	case Byte:
+		sampleSize := int((b.Format.BitDepth-1)/8 + 1)
+		numFrames = (len(b.Bytes) / sampleSize) / numChannels
+	}
+	return numFrames
+}
+```
+
+A series of methods would also be available to access the data as different types:
+
+```go
+// Int16 returns the buffer samples as int16 sample values.
+func (b *PCMBuffer) Int16() (out []int16) {}
+
+func (b *PCMBuffer) Int32() []int32 {}
+
+func (b *PCMBuffer) Int64() []int64 {}
+
+func (b *PCMBuffer) Float32() []float32 {}
+
+func (b *PCMBuffer) Float64() []float64 {}
+
+func (b *PCMBuffer) Byte() []byte {}
+```
+
+To prove that this approach would work in real life, we have used it in various scenarios:
+
+* wav codec
+* aiff codec
+* iOS/macOS playback
+* audio generator with filters
+* FFT analysis
+
+----
+Old proposal.
+
 
 In the scope of the Go mobile project, an audio package that supports
 decoding and playback is a top priority. The current status of audio
