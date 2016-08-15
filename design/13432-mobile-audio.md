@@ -108,8 +108,8 @@ The format of samples contained in the buffer is defined by the `Format` type:
 ```go
 // Format is a high level representation of the underlying data.
 type Format struct {
-	// Channels is the number of channels contained in the data
-	Channels int
+	// NumChannels is the number of channels contained in the data
+	NumChannels int
 	// SampleRate is the sampling rate in Hz
 	SampleRate int
 	// BitDepth is the number of bits of data for each sample
@@ -183,17 +183,17 @@ A series of methods would also be available to access the data as different type
 
 ```go
 // Int16 returns the buffer samples as int16 sample values.
-func (b *PCMBuffer) Int16() (out []int16) {}
+func (b *PCMBuffer) Int16s() (out []int16) {}
 
-func (b *PCMBuffer) Int32() []int32 {}
+func (b *PCMBuffer) Int32s() []int32 {}
 
-func (b *PCMBuffer) Int64() []int64 {}
+func (b *PCMBuffer) Int64s() []int64 {}
 
-func (b *PCMBuffer) Float32() []float32 {}
+func (b *PCMBuffer) Float32s() []float32 {}
 
-func (b *PCMBuffer) Float64() []float64 {}
+func (b *PCMBuffer) Float64s() []float64 {}
 
-func (b *PCMBuffer) Byte() []byte {}
+func (b *PCMBuffer) Bytes() []byte {}
 ```
 
 To prove that this approach would work in real life, we have used it in various scenarios:
