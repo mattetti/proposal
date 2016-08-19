@@ -182,18 +182,20 @@ func (b *PCMBuffer) Size() (numFrames int) {
 A series of methods would also be available to access the data as different types:
 
 ```go
-// Int16 returns the buffer samples as int16 sample values.
-func (b *PCMBuffer) Int16s() (out []int16) {}
+// AsInt16s returns the buffer samples as int16 sample values.
+func (b *PCMBuffer) AsInt16s() (out []int16) {}
 
-func (b *PCMBuffer) Int32s() []int32 {}
+func (b *PCMBuffer) AsInt32s() []int32 {}
 
-func (b *PCMBuffer) Int64s() []int64 {}
+func (b *PCMBuffer) AsInt64s() []int64 {}
 
-func (b *PCMBuffer) Float32s() []float32 {}
+func (b *PCMBuffer) AsInts() []int {}
 
-func (b *PCMBuffer) Float64s() []float64 {}
+func (b *PCMBuffer) AsFloat32s() []float32 {}
 
-func (b *PCMBuffer) Bytes() []byte {}
+func (b *PCMBuffer) AsFloat64s() []float64 {}
+
+func (b *PCMBuffer) AsBytes() []byte {}
 ```
 
 To prove that this approach would work in real life, we have used it in various scenarios:
